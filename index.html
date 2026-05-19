@@ -25,6 +25,15 @@
     const DAYS_JA = ["日","月","火","水","木","金","土"];
     const MONTHS_JA = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
     const PRACTITIONER_PASSWORD = "1234";
+    const PRACTITIONER_PHONE = "080-XXXX-XXXX"; // ← ここに施術者の電話番号を入れてください
+
+    function sendSMSToPractitioner(date, time, clientName, clientPhone, courseId) {
+      const course = COURSES.find(c => c.id === courseId);
+      const courseName = course ? `${course.name}（${course.duration}・${course.price}）` : "";
+      const msg = `【予約通知】\n${formatDate(date)} ${time}\nお客様：${clientName}\nTEL：${clientPhone}\nコース：${courseName}`;
+      const phone = PRACTITIONER_PHONE.replace(/-/g, "");
+      window.location.href = `sms:${phone}?body=${encodeURIComponent(msg)}`;
+    }
 
     // ── コースメニュー ─────────────────────────────────
     const COURSES = [
@@ -176,8 +185,9 @@
           updated[date]=prev[date].map((s,i)=>i===slotIdx?{...s,status:"booked",clientName:form.name,clientPhone:form.phone,clientNote:form.note,courseId:form.courseId}:s);
           return updated;
         });
-        setModal(null); setForm({name:"",phone:"",note:"",courseId:""});
-        showToast("✅ 予約が完了しました！");
+        const bookedInfo = { date, slotIdx, name: form.name, phone: form.phone, courseId: form.courseId, time: slots[date][slotIdx].time };
+        setModal({ type: "booked", ...bookedInfo });
+        setForm({name:"",phone:"",note:"",courseId:""});
       }
 
       function handleCancel() {
@@ -376,6 +386,26 @@
               {pwError && <div style={{color:"#c0756a",fontSize:13,marginTop:8,textAlign:"center"}}>パスワードが違います</div>}
               <button style={{...S.primaryBtn,marginTop:16}} onClick={handlePwSubmit}>ログイン</button>
               <button style={S.ghostBtn} onClick={()=>setPwModal(false)}>キャンセル</button>
+            </Modal>
+          )}
+
+          {/* ── 予約完了モーダル ── */}
+          {modal?.type==="booked" && (
+            <Modal onClose={()=>{ setModal(null); showToast("✅ 予約が完了しました！"); }}>
+              <div style={{textAlign:"center",padding:"8px 0 16px"}}>
+                <div style={{fontSize:40,marginBottom:8}}>✅</div>
+                <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:18,fontWeight:600,color:"#3d5c3d",marginBottom:6}}>予約が完了しました！</div>
+                <div style={{fontSize:13,color:"#7a6e6a",marginBottom:20}}>{formatDate(modal.date)}　{modal.time}</div>
+              </div>
+              <div style={{background:"#f0f8f0",borderRadius:12,padding:14,marginBottom:20,fontSize:13,color:"#3d5c3d",lineHeight:1.8}}>
+                {getCourse(modal.courseId) && <div>💆 {getCourse(modal.courseId).name}（{getCourse(modal.courseId).duration}）</div>}
+                <div>👤 {modal.name}　📞 {modal.phone}</div>
+              </div>
+              <button style={{...S.primaryBtn,background:"#3d7a5a",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
+                onClick={()=>sendSMSToPractitioner(modal.date, modal.time, modal.name, modal.phone, modal.courseId)}>
+                📱 施術者にSMSで通知する
+              </button>
+              <button style={S.ghostBtn} onClick={()=>{ setModal(null); showToast("✅ 予約が完了しました！"); }}>閉じる</button>
             </Modal>
           )}
 
