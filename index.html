@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>リンパケア訪問治療 予約</title>
+  <title>リンパケア予約</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
@@ -11,7 +11,11 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@300;400;600&family=Zen+Kaku+Gothic+New:wght@300;400;700&display=swap" rel="stylesheet">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Zen Kaku Gothic New', sans-serif; background: linear-gradient(160deg, #f0ede8 0%, #e8f0e8 100%); min-height: 100vh; }
+    body {
+      font-family: 'Zen Kaku Gothic New', sans-serif;
+      background: linear-gradient(160deg, #f0ede8 0%, #e8f0e8 100%);
+      min-height: 100vh;
+    }
     button { cursor: pointer; font-family: inherit; }
     input, textarea, select { font-family: inherit; }
   </style>
@@ -24,46 +28,17 @@
 
     const DAYS_JA = ["日","月","火","水","木","金","土"];
     const MONTHS_JA = ["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"];
-    const PRACTITIONER_PASSWORD = "1234";
-    const PRACTITIONER_PHONE = "080-XXXX-XXXX"; // ← ここに施術者の電話番号を入れてください
 
-    function sendSMSToPractitioner(date, time, clientName, clientPhone, courseId) {
-      const course = COURSES.find(c => c.id === courseId);
-      const courseName = course ? `${course.name}（${course.duration}・${course.price}）` : "";
-      const msg = `【予約通知】\n${formatDate(date)} ${time}\nお客様：${clientName}\nTEL：${clientPhone}\nコース：${courseName}`;
-      const phone = PRACTITIONER_PHONE.replace(/-/g, "");
-      window.location.href = `sms:${phone}?body=${encodeURIComponent(msg)}`;
-    }
+    // ── 緊急用初期パスワード（変更しないでください） ──
+    const INITIAL_PASSWORD = "1234";
 
-    // ── コースメニュー ─────────────────────────────────
+    // ── コース ──────────────────────────────────────
     const COURSES = [
-      { id: "c1", name: "リンパドレナージュ", duration: "30分", price: "3,000円" },
-      { id: "c2", name: "リンパ＋ボディケア", duration: "60分", price: "5,000円" },
-      { id: "c3", name: "アクセスバーズ", duration: "60分", price: "8,000円" },
-      { id: "c4", name: "アクセスバーズ", duration: "90分", price: "10,000円" },
+      { id: "c1", name: "リンパドレナージュ",  duration: "30分", price: "3,000円" },
+      { id: "c2", name: "リンパ+ボディケア",   duration: "60分", price: "5,000円" },
+      { id: "c3", name: "アクセスバー®",        duration: "60分", price: "8,000円" },
+      { id: "c4", name: "アクセスバー®",        duration: "90分", price: "10,000円" },
     ];
-
-    function generateSlots() {
-      const slots = {};
-      const today = new Date();
-      for (let d = 0; d < 28; d++) {
-        const date = new Date(today);
-        date.setDate(today.getDate() + d);
-        if (date.getDay() === 0) continue;
-        const dateStr = date.toISOString().split("T")[0];
-        slots[dateStr] = [
-          { time: "10:00", status: "open", clientName: "", clientPhone: "", clientNote: "", courseId: "" },
-          { time: "11:30", status: "open", clientName: "", clientPhone: "", clientNote: "", courseId: "" },
-          { time: "13:00", status: "open", clientName: "", clientPhone: "", clientNote: "", courseId: "" },
-          { time: "14:30", status: "open", clientName: "", clientPhone: "", clientNote: "", courseId: "" },
-          { time: "16:00", status: "open", clientName: "", clientPhone: "", clientNote: "", courseId: "" },
-        ];
-      }
-      const keys = Object.keys(slots);
-      if (keys[2]) slots[keys[2]][1] = { time: "11:30", status: "booked", clientName: "田中 花子", clientPhone: "090-1234-5678", clientNote: "右腕のむくみ", courseId: "c1" };
-      if (keys[4]) slots[keys[4]][3] = { time: "14:30", status: "booked", clientName: "山本 令子", clientPhone: "080-9876-5432", clientNote: "", courseId: "c2" };
-      return slots;
-    }
 
     function getCourse(id) { return COURSES.find(c => c.id === id); }
 
@@ -73,28 +48,78 @@
       return `${d.getFullYear()}年${d.getMonth()+1}月${d.getDate()}日（${DAYS_JA[d.getDay()]}）`;
     }
 
+    // ── localStorage ヘルパー ────────────────────────
+    function loadSetting(key, fallback) {
+      try { const v = localStorage.getItem(key); return v !== null ? v : fallback; }
+      catch { return fallback; }
+    }
+    function saveSetting(key, value) {
+      try { localStorage.setItem(key, value); } catch {}
+    }
+
+    // ── スロット生成（28日分・日曜除く） ────────────────
+    function generateSlots() {
+      const slots = {};
+      const today = new Date();
+      for (let d = 0; d < 28; d++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() + d);
+        if (date.getDay() === 0) continue;
+        const ds = date.toISOString().split("T")[0];
+        slots[ds] = [
+          { time: "10:00", status: "open", clientName: "", clientPhone: "", clientNote: "", courseId: "" },
+          { time: "11:30", status: "open", clientName: "", clientPhone: "", clientNote: "", courseId: "" },
+          { time: "13:00", status: "open", clientName: "", clientPhone: "", clientNote: "", courseId: "" },
+          { time: "14:30", status: "open", clientName: "", clientPhone: "", clientNote: "", courseId: "" },
+          { time: "16:00", status: "open", clientName: "", clientPhone: "", clientNote: "", courseId: "" },
+        ];
+      }
+      // サンプル予約
+      const keys = Object.keys(slots);
+      if (keys[2]) slots[keys[2]][1] = { time:"11:30", status:"booked", clientName:"佐藤 春子", clientPhone:"090-1234-5678", clientNote:"首のあたりが気になる", courseId:"c1" };
+      if (keys[4]) slots[keys[4]][3] = { time:"14:30", status:"booked", clientName:"田中 幸子", clientPhone:"080-9876-5432", clientNote:"", courseId:"c2" };
+      return slots;
+    }
+
+    // ── モーダル ─────────────────────────────────────
     function Modal({ children, onClose }) {
       return (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onClose}>
-          <div style={{background:"#faf7f2",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,padding:"24px 20px 36px",maxHeight:"85vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
+          <div style={{background:"#faf7f2",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:480,padding:"24px 20px 40px",maxHeight:"88vh",overflowY:"auto"}} onClick={e=>e.stopPropagation()}>
             {children}
           </div>
         </div>
       );
     }
 
+    // ── Toast ─────────────────────────────────────────
+    function Toast({ msg }) {
+      if (!msg) return null;
+      return (
+        <div style={{position:"fixed",bottom:80,left:"50%",transform:"translateX(-50%)",background:"#3d5c3d",color:"#fff",borderRadius:30,padding:"10px 28px",fontSize:14,zIndex:200,whiteSpace:"nowrap",boxShadow:"0 4px 16px rgba(0,0,0,0.18)"}}>
+          {msg}
+        </div>
+      );
+    }
+
+    // ── カレンダー ────────────────────────────────────
     function Calendar({ calDays, calMonth, setCalMonth, selectedDate, setSelectedDate, slots, mode }) {
       const todayStr = new Date().toISOString().split("T")[0];
       return (
         <div style={{background:"rgba(255,255,255,0.85)",borderRadius:16,padding:16,boxShadow:"0 2px 16px rgba(0,0,0,0.07)",marginBottom:16}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-            <button style={{border:"none",background:"transparent",fontSize:22,color:"#7a9e7e",padding:"0 8px"}} onClick={()=>setCalMonth(m=>{const d=new Date(m.year,m.month-1,1);return{year:d.getFullYear(),month:d.getMonth()};})}>‹</button>
-            <span style={{fontFamily:"'Noto Serif JP',serif",fontSize:16,fontWeight:600,color:"#3d5c3d"}}>{calMonth.year}年 {MONTHS_JA[calMonth.month]}</span>
-            <button style={{border:"none",background:"transparent",fontSize:22,color:"#7a9e7e",padding:"0 8px"}} onClick={()=>setCalMonth(m=>{const d=new Date(m.year,m.month+1,1);return{year:d.getFullYear(),month:d.getMonth()};})}>›</button>
+            <button style={{border:"none",background:"transparent",fontSize:22,color:"#7a9e7e",padding:"0 8px"}}
+              onClick={()=>setCalMonth(m=>{const d=new Date(m.year,m.month-1,1);return{year:d.getFullYear(),month:d.getMonth()};})}>‹</button>
+            <span style={{fontFamily:"'Noto Serif JP',serif",fontSize:16,fontWeight:600,color:"#3d5c3d"}}>
+              {calMonth.year}年 {MONTHS_JA[calMonth.month]}
+            </span>
+            <button style={{border:"none",background:"transparent",fontSize:22,color:"#7a9e7e",padding:"0 8px"}}
+              onClick={()=>setCalMonth(m=>{const d=new Date(m.year,m.month+1,1);return{year:d.getFullYear(),month:d.getMonth()};})}>›</button>
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",marginBottom:4}}>
             {["日","月","火","水","木","金","土"].map((d,i)=>(
-              <div key={d} style={{textAlign:"center",fontSize:11,padding:"4px 0",fontWeight:700,color:i===0?"#c0756a":i===6?"#6a90c0":"#7a6e6a"}}>{d}</div>
+              <div key={d} style={{textAlign:"center",fontSize:11,padding:"4px 0",fontWeight:700,
+                color:i===0?"#c0756a":i===6?"#6a90c0":"#7a6e6a"}}>{d}</div>
             ))}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2}}>
@@ -108,13 +133,21 @@
               const openCount = daySlots.filter(s=>s.status==="open").length;
               const bookedCount = daySlots.filter(s=>s.status==="booked").length;
               const isSun = day.getDay()===0, isSat = day.getDay()===6;
+              const isClosed = !slots[ds];
               return (
-                <button key={i} onClick={()=>!isPast&&setSelectedDate(ds)} disabled={isPast}
-                  style={{border:"none",background:isSelected?"#7a9e7e":isToday?"#e8f5e8":"transparent",borderRadius:10,padding:"6px 2px",display:"flex",flexDirection:"column",alignItems:"center",minHeight:48,opacity:isPast?0.35:1,color:isSelected?"#fff":isSun?"#c0756a":isSat?"#6a90c0":"#3d3530"}}>
+                <button key={i} onClick={()=>!isPast&&!isClosed&&setSelectedDate(ds)} disabled={isPast||isClosed}
+                  style={{border:"none",
+                    background:isSelected?"#7a9e7e":isToday?"#e8f5e8":"transparent",
+                    borderRadius:10,padding:"6px 2px",display:"flex",flexDirection:"column",alignItems:"center",
+                    minHeight:48,opacity:(isPast||isClosed)?0.35:1,
+                    color:isSelected?"#fff":isSun?"#c0756a":isSat?"#6a90c0":"#3d3530"}}>
                   <span style={{fontSize:13,fontWeight:500,lineHeight:1.4}}>{day.getDate()}</span>
-                  {!isPast && (
+                  {!isPast && !isClosed && (
                     <span style={{display:"flex",gap:2,marginTop:3}}>
-                      {mode==="client" ? Array(Math.min(openCount,3)).fill(0).map((_,j)=><span key={j} style={{width:5,height:5,borderRadius:"50%",background:isSelected?"rgba(255,255,255,0.8)":"#7a9e7e",display:"inline-block"}}/>)
+                      {mode==="client"
+                        ? Array(Math.min(openCount,3)).fill(0).map((_,j)=>
+                            <span key={j} style={{width:5,height:5,borderRadius:"50%",
+                              background:isSelected?"rgba(255,255,255,0.8)":"#7a9e7e",display:"inline-block"}}/>)
                         : <>
                             {openCount>0&&<span style={{width:5,height:5,borderRadius:"50%",background:isSelected?"rgba(255,255,255,0.8)":"#7a9e7e",display:"inline-block"}}/>}
                             {bookedCount>0&&<span style={{width:5,height:5,borderRadius:"50%",background:isSelected?"rgba(255,255,255,0.8)":"#c0756a",display:"inline-block"}}/>}
@@ -122,18 +155,26 @@
                       }
                     </span>
                   )}
+                  {isClosed && !isPast && <span style={{fontSize:8,color:"#bbb"}}>休</span>}
                 </button>
               );
             })}
           </div>
           <div style={{fontSize:11,color:"#7a6e6a",marginTop:10,display:"flex",gap:4,alignItems:"center"}}>
-            <span style={{width:5,height:5,borderRadius:"50%",background:"#7a9e7e",display:"inline-block",marginRight:4}}/>空き枠あり
-            {mode==="practitioner"&&<span style={{marginLeft:12,display:"flex",alignItems:"center",gap:4}}><span style={{width:5,height:5,borderRadius:"50%",background:"#c0756a",display:"inline-block"}}/>予約済み</span>}
+            <span style={{width:5,height:5,borderRadius:"50%",background:"#7a9e7e",display:"inline-block",marginRight:4}}/>空き有り
+            {mode==="practitioner"&&(
+              <span style={{marginLeft:12,display:"flex",alignItems:"center",gap:4}}>
+                <span style={{width:5,height:5,borderRadius:"50%",background:"#c0756a",display:"inline-block"}}/>予約済み
+              </span>
+            )}
           </div>
         </div>
       );
     }
 
+    // ═══════════════════════════════════════════════════
+    //  メインアプリ
+    // ═══════════════════════════════════════════════════
     function App() {
       const [mode, setMode] = useState("client");
       const [slots, setSlots] = useState(generateSlots);
@@ -141,347 +182,597 @@
       const [calMonth, setCalMonth] = useState(()=>{const t=new Date();return{year:t.getFullYear(),month:t.getMonth()};});
       const [modal, setModal] = useState(null);
       const [form, setForm] = useState({name:"",phone:"",note:"",courseId:""});
-      const [clientView, setClientView] = useState("calendar");
-      const [praView, setPraView] = useState("calendar");
       const [toast, setToast] = useState("");
+      const [praView, setPraView] = useState("calendar");
+
+      // ── パスワードログイン ──
       const [pwModal, setPwModal] = useState(false);
       const [pwInput, setPwInput] = useState("");
       const [pwError, setPwError] = useState(false);
 
-      function showToast(msg) { setToast(msg); setTimeout(()=>setToast(""),2500); }
+      // ── 設定画面 ──
+      const [settingsModal, setSettingsModal] = useState(false);
+      const [settingsView, setSettingsView] = useState("menu");
+
+      // ── localStorage から設定読み込み ──
+      const [currentPassword, setCurrentPassword] = useState(()=>loadSetting("lc_password", INITIAL_PASSWORD));
+      const [shopPhone, setShopPhone] = useState(()=>loadSetting("lc_phone", ""));
+      const [shopName] = useState(()=>loadSetting("lc_shopname", "リンパケア予約"));
+
+      // ── パスワード変更フォーム ──
+      const [pwCurrent, setPwCurrent] = useState("");
+      const [pwNew, setPwNew]         = useState("");
+      const [pwConfirm, setPwConfirm] = useState("");
+      const [pwChangeMsg, setPwChangeMsg] = useState({ text:"", ok:false });
+
+      // ── 電話番号変更フォーム ──
+      const [phoneInput, setPhoneInput]     = useState("");
+      const [phoneMsg, setPhoneMsg]         = useState({ text:"", ok:false });
+
+      function showToast(msg) { setToast(msg); setTimeout(()=>setToast(""),2600); }
 
       function buildCalendar(year, month) {
         const first = new Date(year,month,1);
-        const last = new Date(year,month+1,0);
-        const days = [];
+        const last  = new Date(year,month+1,0);
+        const days  = [];
         for(let i=0;i<first.getDay();i++) days.push(null);
         for(let d=1;d<=last.getDate();d++) days.push(new Date(year,month,d));
         return days;
       }
 
-      function handlePractitionerClick() {
-        setPwInput("");
-        setPwError(false);
-        setPwModal(true);
-      }
+      const calDays  = buildCalendar(calMonth.year, calMonth.month);
+      const daySlots = selectedDate ? (slots[selectedDate]||[]) : [];
 
+      // ── ログイン処理 ──
+      function handlePractitionerClick() { setPwInput(""); setPwError(false); setPwModal(true); }
       function handlePwSubmit() {
-        if(pwInput === PRACTITIONER_PASSWORD) {
-          setPwModal(false);
-          setMode("practitioner");
-          setSelectedDate(null);
-          setPraView("calendar");
+        if(pwInput === currentPassword || pwInput === INITIAL_PASSWORD) {
+          setPwModal(false); setMode("practitioner"); setSelectedDate(null); setPraView("calendar");
         } else {
-          setPwError(true);
-          setPwInput("");
+          setPwError(true); setPwInput("");
         }
       }
 
+      // ── 設定モーダルを開く ──
+      function openSettings() {
+        setSettingsView("menu");
+        setPwCurrent(""); setPwNew(""); setPwConfirm(""); setPwChangeMsg({text:"",ok:false});
+        setPhoneInput(shopPhone); setPhoneMsg({text:"",ok:false});
+        setSettingsModal(true);
+      }
+
+      // ── パスワード変更処理 ──
+      function handlePasswordChange() {
+        if(!pwCurrent || !pwNew || !pwConfirm) {
+          setPwChangeMsg({text:"すべての項目を入力してください",ok:false}); return;
+        }
+        if(pwCurrent !== currentPassword && pwCurrent !== INITIAL_PASSWORD) {
+          setPwChangeMsg({text:"現在のパスワードが違います",ok:false}); return;
+        }
+        if(pwNew.length < 4) {
+          setPwChangeMsg({text:"新しいパスワードは4文字以上にしてください",ok:false}); return;
+        }
+        if(pwNew !== pwConfirm) {
+          setPwChangeMsg({text:"新しいパスワードが一致しません",ok:false}); return;
+        }
+        saveSetting("lc_password", pwNew);
+        setCurrentPassword(pwNew);
+        setPwChangeMsg({text:"パスワードを変更しました ✓",ok:true});
+        setPwCurrent(""); setPwNew(""); setPwConfirm("");
+      }
+
+      // ── 電話番号変更処理 ──
+      function handlePhoneSave() {
+        if(!phoneInput.trim()) {
+          setPhoneMsg({text:"電話番号を入力してください",ok:false}); return;
+        }
+        saveSetting("lc_phone", phoneInput.trim());
+        setShopPhone(phoneInput.trim());
+        setPhoneMsg({text:"電話番号を保存しました ✓",ok:true});
+      }
+
+      // ── SMS送信 ──
+      function sendSMS(date, time, clientName, clientPhone, courseId) {
+        const course   = getCourse(courseId);
+        const courseTxt = course ? `${course.name}（${course.duration}・${course.price}）` : "";
+        const msg = `【予約通知】\n${formatDate(date)} ${time}\nお客様：${clientName}\nTEL：${clientPhone}\nコース：${courseTxt}`;
+        const phone = shopPhone.replace(/-/g,"");
+        if(!phone) { showToast("施術者の電話番号が未設定です"); return; }
+        window.location.href = `sms:${phone}?body=${encodeURIComponent(msg)}`;
+      }
+
+      // ── 予約確定 ──
       function handleBook() {
         if(!form.name.trim()||!form.phone.trim()||!form.courseId) return;
         const {date,slotIdx} = modal;
         setSlots(prev=>{
-          const updated={...prev};
-          updated[date]=prev[date].map((s,i)=>i===slotIdx?{...s,status:"booked",clientName:form.name,clientPhone:form.phone,clientNote:form.note,courseId:form.courseId}:s);
+          const updated = {...prev};
+          updated[date] = prev[date].map((s,i)=>i===slotIdx
+            ?{...s,status:"booked",clientName:form.name,clientPhone:form.phone,clientNote:form.note,courseId:form.courseId}:s);
           return updated;
         });
-        const bookedInfo = { date, slotIdx, name: form.name, phone: form.phone, courseId: form.courseId, time: slots[date][slotIdx].time };
-        setModal({ type: "booked", ...bookedInfo });
+        const bookedInfo = { date, slotIdx, name:form.name, phone:form.phone, courseId:form.courseId, note:form.note, time:slots[date][slotIdx].time };
+        setModal({ type:"booked", ...bookedInfo });
         setForm({name:"",phone:"",note:"",courseId:""});
       }
 
+      // ── 予約キャンセル ──
       function handleCancel() {
         const {date,slotIdx} = modal;
         setSlots(prev=>{
-          const updated={...prev};
-          updated[date]=prev[date].map((s,i)=>i===slotIdx?{...s,status:"open",clientName:"",clientPhone:"",clientNote:"",courseId:""}:s);
+          const updated = {...prev};
+          updated[date] = prev[date].map((s,i)=>i===slotIdx
+            ?{...s,status:"open",clientName:"",clientPhone:"",clientNote:"",courseId:""}:s);
           return updated;
         });
-        setModal(null); showToast("キャンセルしました");
+        setModal(null);
+        showToast("予約をキャンセルしました");
       }
 
-      const MY_NAME = "田中 花子";
-      const myBookings = Object.entries(slots).flatMap(([date,arr])=>arr.map((s,i)=>({date,slotIdx:i,...s}))).filter(s=>s.status==="booked"&&s.clientName===MY_NAME);
-      const allBookings = Object.entries(slots).flatMap(([date,arr])=>arr.map((s,i)=>({date,slotIdx:i,...s}))).filter(s=>s.status==="booked").sort((a,b)=>a.date.localeCompare(b.date));
-      const calDays = buildCalendar(calMonth.year, calMonth.month);
-
-      const S = {
-        badge:{display:"inline-block",background:"#c0756a",color:"#fff",borderRadius:10,fontSize:10,padding:"1px 6px",marginLeft:6},
-        tab:{flex:1,border:"none",background:"transparent",padding:"13px 8px",fontSize:13,color:"#7a6e6a",position:"relative"},
-        tabActive:{color:"#3d5c3d",fontWeight:700,borderBottom:"2px solid #7a9e7e"},
-        bookingCard:{background:"rgba(255,255,255,0.85)",borderRadius:14,padding:16,marginBottom:12,boxShadow:"0 2px 10px rgba(0,0,0,0.06)"},
-        primaryBtn:{width:"100%",border:"none",background:"#7a9e7e",color:"#fff",borderRadius:12,padding:14,fontSize:15,fontWeight:700,marginTop:8},
-        ghostBtn:{width:"100%",border:"1px solid #d5cfc8",background:"transparent",color:"#7a6e6a",borderRadius:12,padding:12,fontSize:14,marginTop:10},
-        input:{width:"100%",border:"1px solid #d5cfc8",borderRadius:10,padding:"11px 14px",fontSize:14,background:"#fff",outline:"none"},
-        label:{display:"block",fontSize:12,color:"#6b5e58",fontWeight:700,marginBottom:6},
-        courseCard:{border:"2px solid transparent",borderRadius:12,padding:"12px 14px",marginBottom:8,background:"#f8f5f0",cursor:"pointer",transition:"all 0.15s"},
-        courseCardActive:{border:"2px solid #7a9e7e",background:"#e8f5e8"},
-      };
-
+      // ═══════════════════════════════════════════════
+      //  画面レンダリング
+      // ═══════════════════════════════════════════════
       return (
-        <div>
-          <header style={{background:"rgba(255,255,255,0.85)",backdropFilter:"blur(10px)",borderBottom:"1px solid #ddd8d0",position:"sticky",top:0,zIndex:10}}>
-            <div style={{maxWidth:480,margin:"0 auto",padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div>
-                <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:17,fontWeight:600,color:"#3d5c3d",letterSpacing:1}}>🌿 リンパケア訪問治療</div>
-                <div style={{fontSize:10,color:"#7a9e7e",letterSpacing:2,marginTop:2}}>Lymphatic Care Home Visit</div>
-              </div>
-              <div style={{display:"flex",background:"#e8e4de",borderRadius:20,padding:3,gap:2}}>
-                <button style={{border:"none",borderRadius:16,padding:"5px 12px",fontSize:12,...(mode==="client"?{background:"#fff",color:"#3d5c3d",fontWeight:700,boxShadow:"0 1px 4px rgba(0,0,0,0.12)"}:{background:"transparent",color:"#7a6e6a"})}}
-                  onClick={()=>{setMode("client");setSelectedDate(null);setClientView("calendar");}}>👤 お客様</button>
-                <button style={{border:"none",borderRadius:16,padding:"5px 12px",fontSize:12,...(mode==="practitioner"?{background:"#fff",color:"#3d5c3d",fontWeight:700,boxShadow:"0 1px 4px rgba(0,0,0,0.12)"}:{background:"transparent",color:"#7a6e6a"})}}
-                  onClick={mode==="practitioner"?()=>{}:handlePractitionerClick}>🌿 施術者</button>
-              </div>
-            </div>
-          </header>
+        <div style={{maxWidth:480,margin:"0 auto",minHeight:"100vh",display:"flex",flexDirection:"column"}}>
 
-          <main style={{maxWidth:480,margin:"0 auto",paddingBottom:40}}>
-
-            {/* ── お客様モード ── */}
-            {mode==="client" && (
+          {/* ── ヘッダー ── */}
+          <div style={{background:"linear-gradient(135deg,#7a9e7e,#5a8a6a)",padding:"20px 20px 16px",boxShadow:"0 2px 12px rgba(60,100,60,0.15)"}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
               <div>
-                <div style={{display:"flex",background:"rgba(255,255,255,0.6)",borderBottom:"1px solid #ddd8d0"}}>
-                  <button style={{...S.tab,...(clientView==="calendar"?S.tabActive:{})}} onClick={()=>setClientView("calendar")}>📅 予約する</button>
-                  <button style={{...S.tab,...(clientView==="myBookings"?S.tabActive:{})}} onClick={()=>setClientView("myBookings")}>
-                    📋 予約確認{myBookings.length>0&&<span style={S.badge}>{myBookings.length}</span>}
+                <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:20,fontWeight:600,color:"#fff",letterSpacing:2,textShadow:"0 1px 4px rgba(0,0,0,0.15)"}}>
+                  🌿 {shopName}
+                </div>
+                <div style={{fontSize:11,color:"rgba(255,255,255,0.85)",marginTop:3,letterSpacing:1}}>
+                  月〜土 10:00〜17:00
+                </div>
+              </div>
+              {mode==="client"
+                ? <button onClick={handlePractitionerClick}
+                    style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",borderRadius:20,padding:"6px 14px",color:"#fff",fontSize:12}}>
+                    施術者
                   </button>
-                  <button style={{...S.tab,...(clientView==="menu"?S.tabActive:{})}} onClick={()=>setClientView("menu")}>💆 メニュー</button>
+                : <div style={{display:"flex",gap:8}}>
+                    <button onClick={openSettings}
+                      style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",borderRadius:20,padding:"6px 14px",color:"#fff",fontSize:12}}>
+                      ⚙ 設定
+                    </button>
+                    <button onClick={()=>{setMode("client");setSelectedDate(null);}}
+                      style={{background:"rgba(255,255,255,0.2)",border:"1px solid rgba(255,255,255,0.4)",borderRadius:20,padding:"6px 14px",color:"#fff",fontSize:12}}>
+                      ← 戻る
+                    </button>
+                  </div>
+              }
+            </div>
+            {mode==="practitioner"&&(
+              <div style={{display:"flex",gap:8,marginTop:14}}>
+                {[["calendar","カレンダー"],["list","予約一覧"]].map(([v,label])=>(
+                  <button key={v} onClick={()=>setPraView(v)}
+                    style={{flex:1,padding:"8px 0",borderRadius:20,border:"none",
+                      background:praView===v?"#fff":"rgba(255,255,255,0.2)",
+                      color:praView===v?"#3d5c3d":"#fff",fontSize:13,fontWeight:600}}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── コンテンツ ── */}
+          <div style={{flex:1,padding:"16px 16px 80px",overflowY:"auto"}}>
+
+            {/* ══ クライアント画面 ══ */}
+            {mode==="client" && (
+              <>
+                {/* コース一覧カード */}
+                <div style={{background:"rgba(255,255,255,0.85)",borderRadius:16,padding:"16px",marginBottom:16,boxShadow:"0 2px 12px rgba(60,100,60,0.08)"}}>
+                  <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:14,fontWeight:600,color:"#3d5c3d",marginBottom:10}}>
+                    🌿 コース一覧
+                  </div>
+                  {COURSES.map(c=>(
+                    <div key={c.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(120,160,120,0.15)"}}>
+                      <span style={{fontSize:13,color:"#3d4a3d"}}>{c.name}</span>
+                      <span style={{fontSize:12,color:"#6a8a6a"}}>{c.duration}・<span style={{fontWeight:700,color:"#4a7a4a"}}>{c.price}</span></span>
+                    </div>
+                  ))}
                 </div>
 
-                {clientView==="calendar" && (
-                  <div style={{padding:16}}>
-                    <Calendar calDays={calDays} calMonth={calMonth} setCalMonth={setCalMonth} selectedDate={selectedDate} setSelectedDate={setSelectedDate} slots={slots} mode="client"/>
-                    {selectedDate && slots[selectedDate] && (
-                      <div style={{background:"rgba(255,255,255,0.85)",borderRadius:16,padding:16,boxShadow:"0 2px 16px rgba(0,0,0,0.07)"}}>
-                        <div style={{fontSize:14,fontWeight:700,color:"#3d5c3d",marginBottom:12,fontFamily:"'Noto Serif JP',serif"}}>{formatDate(selectedDate)} の施術枠</div>
-                        {slots[selectedDate].map((slot,i)=>(
-                          <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 0",borderBottom:"1px solid #ede8e0"}}>
-                            <div style={{fontSize:16,fontWeight:700,color:"#3d3530",minWidth:50}}>{slot.time}</div>
-                            <div style={{fontSize:11,borderRadius:8,padding:"3px 10px",fontWeight:600,...(slot.status==="open"?{background:"#e8f5e8",color:"#3d7a3d"}:{background:"#f5e8e8",color:"#7a3d3d"})}}>{slot.status==="open"?"空き":"予約済"}</div>
-                            {slot.status==="open"&&<button style={{marginLeft:"auto",border:"none",background:"#7a9e7e",color:"#fff",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:700}} onClick={()=>setModal({date:selectedDate,slotIdx:i,type:"book"})}>予約する</button>}
+                <Calendar calDays={calDays} calMonth={calMonth} setCalMonth={setCalMonth}
+                  selectedDate={selectedDate} setSelectedDate={setSelectedDate} slots={slots} mode="client"/>
+
+                {selectedDate && (
+                  <div style={{background:"rgba(255,255,255,0.85)",borderRadius:16,padding:16,boxShadow:"0 2px 12px rgba(60,100,60,0.08)"}}>
+                    <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:15,fontWeight:600,color:"#3d5c3d",marginBottom:12}}>
+                      {formatDate(selectedDate)} の空き時間
+                    </div>
+                    {daySlots.map((slot,i)=>(
+                      <button key={i} disabled={slot.status==="booked"}
+                        onClick={()=>setModal({type:"book",date:selectedDate,slotIdx:i})}
+                        style={{width:"100%",marginBottom:8,padding:"12px 16px",borderRadius:12,border:"none",
+                          background:slot.status==="booked"?"#f0ebe8":"linear-gradient(135deg,#f0f7f0,#e8f0e8)",
+                          display:"flex",alignItems:"center",justifyContent:"space-between",
+                          opacity:slot.status==="booked"?0.6:1,
+                          boxShadow:slot.status==="open"?"0 1px 6px rgba(60,100,60,0.10)":"none"}}>
+                        <span style={{fontSize:16,fontWeight:700,color:slot.status==="booked"?"#a09090":"#3d6a3d"}}>
+                          {slot.time}
+                        </span>
+                        <span style={{fontSize:12,padding:"4px 14px",borderRadius:20,fontWeight:600,
+                          background:slot.status==="booked"?"rgba(160,120,120,0.15)":"linear-gradient(135deg,#7a9e7e,#5a8a6a)",
+                          color:slot.status==="booked"?"#a09090":"#fff"}}>
+                          {slot.status==="booked"?"予約済み":"予約する →"}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {!selectedDate&&(
+                  <div style={{textAlign:"center",color:"#8a9e8a",fontSize:13,marginTop:20,lineHeight:1.8}}>
+                    🌿 ご希望の日付をカレンダーから選んでください<br/>
+                    <span style={{fontSize:11}}>● のある日に空き枠があります</span>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ══ 施術者画面 ══ */}
+            {mode==="practitioner" && (
+              <>
+                {/* 電話番号未設定の警告 */}
+                {!shopPhone && (
+                  <div style={{background:"#fff8e8",border:"1px solid #e8d080",borderRadius:12,padding:"12px 16px",marginBottom:16,fontSize:13,color:"#8a6a20"}}>
+                    ⚠️ 通知先の電話番号が未設定です。<br/>
+                    右上の「⚙ 設定」から登録してください。
+                  </div>
+                )}
+
+                {praView==="calendar" && (
+                  <>
+                    <Calendar calDays={calDays} calMonth={calMonth} setCalMonth={setCalMonth}
+                      selectedDate={selectedDate} setSelectedDate={setSelectedDate} slots={slots} mode="practitioner"/>
+                    {selectedDate && (
+                      <div style={{background:"rgba(255,255,255,0.85)",borderRadius:16,padding:16}}>
+                        <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:15,fontWeight:600,color:"#3d5c3d",marginBottom:12}}>
+                          {formatDate(selectedDate)} のスケジュール
+                        </div>
+                        {daySlots.map((slot,i)=>(
+                          <div key={i}
+                            style={{marginBottom:8,padding:"12px 14px",borderRadius:12,
+                              background:slot.status==="booked"?"linear-gradient(135deg,#fdf0e8,#f8e8e0)":"rgba(240,247,240,0.7)",
+                              display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                            <div>
+                              <span style={{fontSize:15,fontWeight:700,color:slot.status==="booked"?"#8a5040":"#5a8a5a"}}>{slot.time}</span>
+                              {slot.status==="booked"&&(
+                                <div style={{fontSize:12,color:"#8a5040",marginTop:3}}>
+                                  {slot.clientName}｜{getCourse(slot.courseId)?.name}
+                                </div>
+                              )}
+                            </div>
+                            {slot.status==="booked"
+                              ? <button onClick={()=>setModal({type:"detail",date:selectedDate,slotIdx:i,...slot})}
+                                  style={{background:"linear-gradient(135deg,#c0856a,#a06050)",border:"none",borderRadius:16,padding:"5px 14px",color:"#fff",fontSize:12,fontWeight:600}}>
+                                  詳細
+                                </button>
+                              : <span style={{fontSize:11,color:"#7a9e7a",padding:"4px 12px",background:"rgba(120,180,120,0.15)",borderRadius:12}}>空き</span>
+                            }
                           </div>
                         ))}
                       </div>
                     )}
-                    {selectedDate && !slots[selectedDate] && <div style={{textAlign:"center",color:"#9a8e88",padding:"32px 16px",fontSize:14}}>この日は受付していません</div>}
-                    {!selectedDate && <div style={{textAlign:"center",color:"#9a8e88",padding:"32px 16px",fontSize:14}}>カレンダーから日付を選んでください</div>}
-                  </div>
+                    {!selectedDate&&<div style={{textAlign:"center",color:"#8a9e8a",fontSize:13,marginTop:20}}>日付を選択してスケジュールを確認</div>}
+                  </>
                 )}
 
-                {clientView==="myBookings" && (
-                  <div style={{padding:16}}>
-                    <h2 style={{fontSize:16,fontWeight:700,color:"#3d5c3d",marginBottom:14,fontFamily:"'Noto Serif JP',serif"}}>📋 予約一覧</h2>
-                    {myBookings.length===0 ? <div style={{textAlign:"center",color:"#9a8e88",padding:"32px 16px",fontSize:14}}>現在の予約はありません</div>
-                      : myBookings.map((b,i)=>{
-                        const course = getCourse(b.courseId);
-                        return (
-                          <div key={i} style={S.bookingCard}>
-                            <div style={{fontSize:15,fontWeight:700,color:"#3d5c3d",fontFamily:"'Noto Serif JP',serif",marginBottom:4}}>{formatDate(b.date)}</div>
-                            <div style={{fontSize:14,color:"#3d3530",marginBottom:4}}>🕐 {b.time}</div>
-                            {course&&<div style={{fontSize:13,color:"#5a8a5a",fontWeight:600,marginBottom:4}}>💆 {course.name}　{course.duration}　{course.price}</div>}
-                            {b.clientNote&&<div style={{fontSize:12,color:"#8a7e78",marginBottom:8}}>メモ: {b.clientNote}</div>}
-                            <button style={{border:"1px solid #c0756a",background:"transparent",color:"#c0756a",borderRadius:8,padding:"6px 16px",fontSize:12,marginTop:8}} onClick={()=>setModal({date:b.date,slotIdx:b.slotIdx,type:"cancel"})}>キャンセルする</button>
-                          </div>
-                        );
-                      })
-                    }
-                  </div>
-                )}
-
-                {clientView==="menu" && (
-                  <div style={{padding:16}}>
-                    <h2 style={{fontSize:16,fontWeight:700,color:"#3d5c3d",marginBottom:14,fontFamily:"'Noto Serif JP',serif"}}>💆 施術メニュー</h2>
-                    {COURSES.map(c=>(
-                      <div key={c.id} style={{background:"rgba(255,255,255,0.85)",borderRadius:14,padding:"16px",marginBottom:12,boxShadow:"0 2px 10px rgba(0,0,0,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                        <div>
-                          <div style={{fontSize:15,fontWeight:700,color:"#3d5c3d",fontFamily:"'Noto Serif JP',serif"}}>{c.name}</div>
-                          <div style={{fontSize:13,color:"#7a6e6a",marginTop:4}}>⏱ {c.duration}</div>
-                        </div>
-                        <div style={{fontSize:16,fontWeight:700,color:"#c0756a"}}>{c.price}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── 施術者モード ── */}
-            {mode==="practitioner" && (
-              <div>
-                <div style={{display:"flex",background:"rgba(255,255,255,0.6)",borderBottom:"1px solid #ddd8d0"}}>
-                  <button style={{...S.tab,...(praView==="calendar"?S.tabActive:{})}} onClick={()=>setPraView("calendar")}>📅 スケジュール管理</button>
-                  <button style={{...S.tab,...(praView==="allBookings"?S.tabActive:{})}} onClick={()=>setPraView("allBookings")}>
-                    📋 予約一覧{allBookings.length>0&&<span style={S.badge}>{allBookings.length}</span>}
-                  </button>
-                </div>
-
-                {praView==="calendar" && (
-                  <div style={{padding:16}}>
-                    <Calendar calDays={calDays} calMonth={calMonth} setCalMonth={setCalMonth} selectedDate={selectedDate} setSelectedDate={setSelectedDate} slots={slots} mode="practitioner"/>
-                    {selectedDate ? (
-                      <div style={{background:"rgba(255,255,255,0.85)",borderRadius:16,padding:16,boxShadow:"0 2px 16px rgba(0,0,0,0.07)"}}>
-                        <div style={{fontSize:14,fontWeight:700,color:"#3d5c3d",marginBottom:12,fontFamily:"'Noto Serif JP',serif"}}>{formatDate(selectedDate)} の施術枠</div>
-                        {(slots[selectedDate]||[]).map((slot,i)=>(
-                          <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"11px 0",borderBottom:"1px solid #ede8e0"}}>
-                            <div style={{fontSize:16,fontWeight:700,color:"#3d3530",minWidth:50}}>{slot.time}</div>
-                            <div style={{fontSize:11,borderRadius:8,padding:"3px 10px",fontWeight:600,...(slot.status==="open"?{background:"#e8f5e8",color:"#3d7a3d"}:{background:"#f5e8e8",color:"#7a3d3d"})}}>{slot.status==="open"?"空き":slot.clientName}</div>
-                            <div style={{marginLeft:"auto",display:"flex",gap:8}}>
-                              {slot.status==="booked"&&<button style={{border:"none",background:"#e8d5d0",color:"#7a4040",borderRadius:10,padding:"7px 14px",fontSize:12,fontWeight:700}} onClick={()=>setModal({date:selectedDate,slotIdx:i,type:"detail"})}>詳細</button>}
-                              {slot.status==="open"&&<button style={{border:"none",background:"#f0e8e8",color:"#9a6060",borderRadius:10,padding:"7px 14px",fontSize:11}} onClick={()=>{
-                                if(window.confirm("この枠を削除しますか？")){
-                                  setSlots(prev=>{const u={...prev};u[selectedDate]=prev[selectedDate].filter((_,j)=>j!==i);return u;});
-                                }
-                              }}>削除</button>}
+                {praView==="list" && (
+                  <div>
+                    <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:15,fontWeight:600,color:"#3d5c3d",marginBottom:12}}>予約一覧</div>
+                    {Object.entries(slots).flatMap(([date,ds])=>
+                      ds.map((s,i)=>({date,slot:s,idx:i})).filter(({slot})=>slot.status==="booked")
+                    ).length===0
+                      ? <div style={{textAlign:"center",color:"#8a9e8a",padding:"40px 0",fontSize:13}}>予約はありません</div>
+                      : Object.entries(slots).flatMap(([date,ds])=>
+                          ds.map((s,i)=>({date,slot:s,idx:i})).filter(({slot})=>slot.status==="booked")
+                        ).map(({date,slot,idx},key)=>(
+                          <div key={key}
+                            style={{background:"linear-gradient(135deg,#f5faf5,#eef5ee)",borderRadius:14,padding:"14px 16px",marginBottom:10,
+                              boxShadow:"0 1px 8px rgba(60,100,60,0.08)"}}>
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                              <div>
+                                <div style={{fontSize:12,color:"#6a8a6a",marginBottom:4}}>{formatDate(date)} {slot.time}</div>
+                                <div style={{fontSize:15,fontWeight:700,color:"#3d5c3d"}}>{slot.clientName}</div>
+                                <div style={{fontSize:12,color:"#6a8a6a",marginTop:3}}>📞 {slot.clientPhone}</div>
+                                <div style={{fontSize:12,color:"#6a8a6a",marginTop:2}}>🌿 {getCourse(slot.courseId)?.name}・{getCourse(slot.courseId)?.price}</div>
+                                {slot.clientNote&&<div style={{fontSize:11,color:"#8a9e8a",marginTop:3}}>メモ：{slot.clientNote}</div>}
+                              </div>
+                              <button onClick={()=>setModal({type:"detail",date,slotIdx:idx,...slot})}
+                                style={{background:"linear-gradient(135deg,#7a9e7e,#5a8a6a)",border:"none",borderRadius:16,padding:"6px 14px",color:"#fff",fontSize:12,fontWeight:600,whiteSpace:"nowrap",marginLeft:8}}>
+                                詳細
+                              </button>
                             </div>
                           </div>
-                        ))}
-                        <button style={{width:"100%",border:"1px dashed #7a9e7e",background:"transparent",color:"#7a9e7e",borderRadius:10,padding:10,fontSize:13,marginTop:12}} onClick={()=>{
-                          const time=window.prompt("追加する時間を入力（例: 09:00）");
-                          if(!time||!/^\d{2}:\d{2}$/.test(time))return;
-                          setSlots(prev=>{const u={...prev};const day=[...(prev[selectedDate]||[]),{time,status:"open",clientName:"",clientPhone:"",clientNote:"",courseId:""}];day.sort((a,b)=>a.time.localeCompare(b.time));u[selectedDate]=day;return u;});
-                        }}>＋ 枠を追加</button>
-                      </div>
-                    ) : <div style={{textAlign:"center",color:"#9a8e88",padding:"32px 16px",fontSize:14}}>カレンダーから日付を選んでください</div>}
-                  </div>
-                )}
-
-                {praView==="allBookings" && (
-                  <div style={{padding:16}}>
-                    <h2 style={{fontSize:16,fontWeight:700,color:"#3d5c3d",marginBottom:14,fontFamily:"'Noto Serif JP',serif"}}>📋 全予約一覧</h2>
-                    {allBookings.length===0 ? <div style={{textAlign:"center",color:"#9a8e88",padding:"32px 16px",fontSize:14}}>予約はまだありません</div>
-                      : allBookings.map((b,i)=>{
-                        const course = getCourse(b.courseId);
-                        return (
-                          <div key={i} style={S.bookingCard}>
-                            <div style={{fontSize:15,fontWeight:700,color:"#3d5c3d",fontFamily:"'Noto Serif JP',serif",marginBottom:4}}>{formatDate(b.date)}</div>
-                            <div style={{fontSize:14,color:"#3d3530",marginBottom:4}}>🕐 {b.time}</div>
-                            <div style={{fontSize:13,color:"#6b5e58",marginBottom:4}}>👤 {b.clientName}　📞 {b.clientPhone}</div>
-                            {course&&<div style={{fontSize:13,color:"#5a8a5a",fontWeight:600,marginBottom:4}}>💆 {course.name}　{course.duration}　{course.price}</div>}
-                            {b.clientNote&&<div style={{fontSize:12,color:"#8a7e78",marginBottom:8}}>📝 {b.clientNote}</div>}
-                            <button style={{border:"1px solid #c0756a",background:"transparent",color:"#c0756a",borderRadius:8,padding:"6px 16px",fontSize:12,marginTop:8}} onClick={()=>setModal({date:b.date,slotIdx:b.slotIdx,type:"cancel"})}>キャンセル</button>
-                          </div>
-                        );
-                      })
+                        ))
                     }
                   </div>
                 )}
-              </div>
+              </>
             )}
-          </main>
+          </div>
 
-          {/* ── パスワードモーダル ── */}
+          {/* ════════ モーダル類 ════════ */}
+
+          {/* ── パスワードログイン ── */}
           {pwModal && (
             <Modal onClose={()=>setPwModal(false)}>
-              <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:18,fontWeight:600,color:"#3d5c3d",marginBottom:6}}>🔒 施術者ログイン</div>
-              <div style={{fontSize:13,color:"#7a6e6a",marginBottom:20}}>パスワードを入力してください</div>
-              <input
-                style={{...S.input,letterSpacing:6,fontSize:20,textAlign:"center"}}
-                type="password" inputMode="numeric" maxLength={4}
-                value={pwInput}
-                onChange={e=>{ setPwInput(e.target.value); setPwError(false); }}
-                placeholder="＊＊＊＊"
+              <div style={{textAlign:"center",marginBottom:20}}>
+                <div style={{fontSize:32,marginBottom:8}}>🌿</div>
+                <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:18,fontWeight:600,color:"#3d5c3d"}}>施術者ログイン</div>
+              </div>
+              <input type="password" value={pwInput} onChange={e=>setPwInput(e.target.value)}
                 onKeyDown={e=>e.key==="Enter"&&handlePwSubmit()}
-                autoFocus
-              />
-              {pwError && <div style={{color:"#c0756a",fontSize:13,marginTop:8,textAlign:"center"}}>パスワードが違います</div>}
-              <button style={{...S.primaryBtn,marginTop:16}} onClick={handlePwSubmit}>ログイン</button>
-              <button style={S.ghostBtn} onClick={()=>setPwModal(false)}>キャンセル</button>
+                placeholder="パスワードを入力"
+                style={{width:"100%",padding:"12px 16px",borderRadius:12,
+                  border:pwError?"2px solid #c07060":"1px solid #c0d0c0",
+                  fontSize:16,marginBottom:8,background:"#f5faf5",outline:"none"}}/>
+              {pwError&&<div style={{color:"#c07060",fontSize:12,textAlign:"center",marginBottom:8}}>パスワードが違います</div>}
+              <button onClick={handlePwSubmit}
+                style={{width:"100%",padding:"13px",borderRadius:12,border:"none",
+                  background:"linear-gradient(135deg,#7a9e7e,#5a8a6a)",color:"#fff",fontSize:15,fontWeight:700,
+                  boxShadow:"0 3px 12px rgba(60,100,60,0.25)"}}>
+                ログイン
+              </button>
+            </Modal>
+          )}
+
+          {/* ── ⚙ 設定モーダル ── */}
+          {settingsModal && (
+            <Modal onClose={()=>setSettingsModal(false)}>
+              {/* 設定メニュー */}
+              {settingsView==="menu" && (
+                <>
+                  <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:17,fontWeight:600,color:"#3d5c3d",marginBottom:20,textAlign:"center"}}>
+                    ⚙ 設定
+                  </div>
+                  {[
+                    { view:"password", icon:"🔑", label:"パスワードを変更する" },
+                    { view:"phone",    icon:"📞", label:"通知先電話番号を変更する" },
+                  ].map(item=>(
+                    <button key={item.view} onClick={()=>setSettingsView(item.view)}
+                      style={{width:"100%",padding:"16px",borderRadius:14,border:"none",
+                        background:"linear-gradient(135deg,#f0f7f0,#e8f0e8)",
+                        display:"flex",alignItems:"center",gap:14,marginBottom:10,
+                        boxShadow:"0 1px 6px rgba(60,100,60,0.08)",fontSize:15,color:"#3d5c3d",fontWeight:600}}>
+                      <span style={{fontSize:22}}>{item.icon}</span>{item.label}
+                    </button>
+                  ))}
+                  <button onClick={()=>setSettingsModal(false)}
+                    style={{width:"100%",padding:"12px",borderRadius:12,border:"1px solid #c0d0c0",
+                      background:"transparent",color:"#6a8a6a",fontSize:14,marginTop:4}}>
+                    閉じる
+                  </button>
+                </>
+              )}
+
+              {/* パスワード変更 */}
+              {settingsView==="password" && (
+                <>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
+                    <button onClick={()=>setSettingsView("menu")} style={{border:"none",background:"transparent",fontSize:20,color:"#7a9e7e"}}>‹</button>
+                    <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:17,fontWeight:600,color:"#3d5c3d"}}>🔑 パスワード変更</div>
+                  </div>
+                  <div style={{background:"#f0f7f0",borderRadius:12,padding:"12px 14px",marginBottom:16,fontSize:12,color:"#5a7a5a",lineHeight:1.7}}>
+                    ※ 緊急時は初期パスワード「{INITIAL_PASSWORD}」でもログインできます
+                  </div>
+                  {[
+                    { label:"現在のパスワード", val:pwCurrent, set:setPwCurrent },
+                    { label:"新しいパスワード（4文字以上）", val:pwNew, set:setPwNew },
+                    { label:"新しいパスワード（確認）", val:pwConfirm, set:setPwConfirm },
+                  ].map(({label,val,set})=>(
+                    <div key={label} style={{marginBottom:12}}>
+                      <div style={{fontSize:12,color:"#6a8a6a",marginBottom:4,fontWeight:600}}>{label}</div>
+                      <input type="password" value={val} onChange={e=>set(e.target.value)}
+                        style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1px solid #c0d0c0",
+                          fontSize:14,background:"#f5faf5",outline:"none"}}/>
+                    </div>
+                  ))}
+                  {pwChangeMsg.text&&(
+                    <div style={{fontSize:13,color:pwChangeMsg.ok?"#4a7a4a":"#c07060",textAlign:"center",marginBottom:10}}>
+                      {pwChangeMsg.text}
+                    </div>
+                  )}
+                  <button onClick={handlePasswordChange}
+                    style={{width:"100%",padding:"13px",borderRadius:12,border:"none",
+                      background:"linear-gradient(135deg,#7a9e7e,#5a8a6a)",color:"#fff",fontSize:15,fontWeight:700,marginBottom:8}}>
+                    変更する
+                  </button>
+                  {pwChangeMsg.ok&&(
+                    <button onClick={()=>setSettingsModal(false)}
+                      style={{width:"100%",padding:"11px",borderRadius:12,border:"1px solid #c0d0c0",
+                        background:"transparent",color:"#6a8a6a",fontSize:14}}>
+                      閉じる
+                    </button>
+                  )}
+                </>
+              )}
+
+              {/* 電話番号変更 */}
+              {settingsView==="phone" && (
+                <>
+                  <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
+                    <button onClick={()=>setSettingsView("menu")} style={{border:"none",background:"transparent",fontSize:20,color:"#7a9e7e"}}>‹</button>
+                    <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:17,fontWeight:600,color:"#3d5c3d"}}>📞 通知先電話番号</div>
+                  </div>
+                  <div style={{background:"#f0f7f0",borderRadius:12,padding:"12px 14px",marginBottom:16,fontSize:12,color:"#5a7a5a",lineHeight:1.7}}>
+                    お客様が予約完了後にSMSで通知が届く電話番号を登録してください。<br/>
+                    GitHubのコードには表示されません。
+                  </div>
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:12,color:"#6a8a6a",marginBottom:4,fontWeight:600}}>電話番号</div>
+                    <input type="tel" value={phoneInput} onChange={e=>setPhoneInput(e.target.value)}
+                      placeholder="例：090-1234-5678"
+                      style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1px solid #c0d0c0",
+                        fontSize:14,background:"#f5faf5",outline:"none"}}/>
+                  </div>
+                  {phoneMsg.text&&(
+                    <div style={{fontSize:13,color:phoneMsg.ok?"#4a7a4a":"#c07060",textAlign:"center",marginBottom:10}}>
+                      {phoneMsg.text}
+                    </div>
+                  )}
+                  <button onClick={handlePhoneSave}
+                    style={{width:"100%",padding:"13px",borderRadius:12,border:"none",
+                      background:"linear-gradient(135deg,#7a9e7e,#5a8a6a)",color:"#fff",fontSize:15,fontWeight:700,marginBottom:8}}>
+                    保存する
+                  </button>
+                  {phoneMsg.ok&&(
+                    <button onClick={()=>setSettingsModal(false)}
+                      style={{width:"100%",padding:"11px",borderRadius:12,border:"1px solid #c0d0c0",
+                        background:"transparent",color:"#6a8a6a",fontSize:14}}>
+                      閉じる
+                    </button>
+                  )}
+                </>
+              )}
+            </Modal>
+          )}
+
+          {/* ── 予約フォームモーダル ── */}
+          {modal?.type==="book" && (
+            <Modal onClose={()=>setModal(null)}>
+              <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:17,fontWeight:600,color:"#3d5c3d",marginBottom:16}}>
+                ご予約内容の入力
+              </div>
+              <div style={{background:"#f0f7f0",borderRadius:12,padding:"12px 14px",marginBottom:16,fontSize:13,color:"#5a7a5a"}}>
+                📅 {formatDate(modal.date)} {slots[modal.date][modal.slotIdx].time}
+              </div>
+
+              {/* コース選択 */}
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:12,color:"#6a8a6a",marginBottom:6,fontWeight:600}}>コースを選択 *</div>
+                {COURSES.map(c=>(
+                  <button key={c.id} onClick={()=>setForm(f=>({...f,courseId:c.id}))}
+                    style={{width:"100%",padding:"10px 14px",borderRadius:10,marginBottom:6,border:"none",
+                      background:form.courseId===c.id?"linear-gradient(135deg,#7a9e7e,#5a8a6a)":"rgba(240,247,240,0.9)",
+                      display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                    <span style={{fontSize:13,fontWeight:600,color:form.courseId===c.id?"#fff":"#3d5c3d"}}>{c.name}</span>
+                    <span style={{fontSize:12,color:form.courseId===c.id?"rgba(255,255,255,0.85)":"#6a8a6a"}}>{c.duration}・{c.price}</span>
+                  </button>
+                ))}
+              </div>
+
+              {[
+                {key:"name",  label:"お名前 *",   placeholder:"例：山田 花子", type:"text"},
+                {key:"phone", label:"電話番号 *",  placeholder:"例：090-1234-5678", type:"tel"},
+              ].map(({key,label,placeholder,type})=>(
+                <div key={key} style={{marginBottom:12}}>
+                  <div style={{fontSize:12,color:"#6a8a6a",marginBottom:4,fontWeight:600}}>{label}</div>
+                  <input type={type} value={form[key]} onChange={e=>setForm(f=>({...f,[key]:e.target.value}))}
+                    placeholder={placeholder}
+                    style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1px solid #c0d0c0",
+                      fontSize:14,background:"#f5faf5",outline:"none"}}/>
+                </div>
+              ))}
+              <div style={{marginBottom:20}}>
+                <div style={{fontSize:12,color:"#6a8a6a",marginBottom:4,fontWeight:600}}>ご要望・備考（任意）</div>
+                <textarea value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))}
+                  placeholder="気になる部分など何でもお気軽に"
+                  rows={3}
+                  style={{width:"100%",padding:"11px 14px",borderRadius:10,border:"1px solid #c0d0c0",
+                    fontSize:13,background:"#f5faf5",resize:"none",outline:"none"}}/>
+              </div>
+
+              <button onClick={handleBook}
+                disabled={!form.name.trim()||!form.phone.trim()||!form.courseId}
+                style={{width:"100%",padding:"14px",borderRadius:12,border:"none",
+                  background:(!form.name.trim()||!form.phone.trim()||!form.courseId)
+                    ?"#c8d8c8":"linear-gradient(135deg,#7a9e7e,#5a8a6a)",
+                  color:"#fff",fontSize:15,fontWeight:700,
+                  boxShadow:"0 3px 12px rgba(60,100,60,0.2)"}}>
+                予約を確定する
+              </button>
             </Modal>
           )}
 
           {/* ── 予約完了モーダル ── */}
           {modal?.type==="booked" && (
-            <Modal onClose={()=>{ setModal(null); showToast("✅ 予約が完了しました！"); }}>
-              <div style={{textAlign:"center",padding:"8px 0 16px"}}>
-                <div style={{fontSize:40,marginBottom:8}}>✅</div>
-                <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:18,fontWeight:600,color:"#3d5c3d",marginBottom:6}}>予約が完了しました！</div>
-                <div style={{fontSize:13,color:"#7a6e6a",marginBottom:20}}>{formatDate(modal.date)}　{modal.time}</div>
+            <Modal onClose={()=>{setModal(null);setSelectedDate(null);}}>
+              <div style={{textAlign:"center",marginBottom:20}}>
+                <div style={{fontSize:44,marginBottom:8}}>🌿</div>
+                <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:20,fontWeight:600,color:"#3d5c3d"}}>ご予約が完了しました</div>
               </div>
-              <div style={{background:"#f0f8f0",borderRadius:12,padding:14,marginBottom:20,fontSize:13,color:"#3d5c3d",lineHeight:1.8}}>
-                {getCourse(modal.courseId) && <div>💆 {getCourse(modal.courseId).name}（{getCourse(modal.courseId).duration}）</div>}
-                <div>👤 {modal.name}　📞 {modal.phone}</div>
+              <div style={{background:"#f0f7f0",borderRadius:14,padding:"16px",marginBottom:20}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                  {[
+                    ["日時",    `${formatDate(modal.date)} ${modal.time}`],
+                    ["コース",  `${getCourse(modal.courseId)?.name}・${getCourse(modal.courseId)?.price}`],
+                    ["お名前",  modal.name],
+                    ["電話番号",modal.phone],
+                    modal.note?["備考",modal.note]:null,
+                  ].filter(Boolean).map(([label,value])=>(
+                    <tr key={label}>
+                      <td style={{padding:"5px 8px",color:"#6a8a6a",whiteSpace:"nowrap",fontWeight:600,verticalAlign:"top"}}>{label}</td>
+                      <td style={{padding:"5px 8px",color:"#2a4a2a"}}>{value}</td>
+                    </tr>
+                  ))}
+                </table>
               </div>
-              <button style={{...S.primaryBtn,background:"#3d7a5a",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}
-                onClick={()=>sendSMSToPractitioner(modal.date, modal.time, modal.name, modal.phone, modal.courseId)}>
-                📱 施術者にSMSで通知する
+              <button onClick={()=>sendSMS(modal.date,modal.time,modal.name,modal.phone,modal.courseId)}
+                style={{width:"100%",padding:"13px",borderRadius:12,border:"none",
+                  background:"linear-gradient(135deg,#7a9e7e,#5a8a6a)",color:"#fff",fontSize:14,fontWeight:700,marginBottom:10}}>
+                📩 施術者にSMSで通知する
               </button>
-              <button style={S.ghostBtn} onClick={()=>{ setModal(null); showToast("✅ 予約が完了しました！"); }}>閉じる</button>
+              <button onClick={()=>{setModal(null);setSelectedDate(null);}}
+                style={{width:"100%",padding:"12px",borderRadius:12,border:"1px solid #c0d0c0",
+                  background:"transparent",color:"#6a8a6a",fontSize:14}}>
+                閉じる
+              </button>
             </Modal>
           )}
 
-          {/* ── 予約モーダル ── */}
-          {modal?.type==="book" && (
+          {/* ── 予約詳細モーダル（施術者） ── */}
+          {modal?.type==="detail" && (
             <Modal onClose={()=>setModal(null)}>
-              <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:18,fontWeight:600,color:"#3d5c3d",marginBottom:6}}>🌿 ご予約</div>
-              <div style={{fontSize:13,color:"#7a6e6a",marginBottom:16}}>{formatDate(modal.date)}　{slots[modal.date]?.[modal.slotIdx]?.time}</div>
-
-              {/* コース選択 */}
-              <div style={{marginBottom:16}}>
-                <label style={S.label}>施術コース *</label>
-                {COURSES.map(c=>(
-                  <div key={c.id}
-                    style={{...S.courseCard,...(form.courseId===c.id?S.courseCardActive:{})}}
-                    onClick={()=>setForm(f=>({...f,courseId:c.id}))}>
-                    <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                      <div>
-                        <div style={{fontSize:14,fontWeight:700,color:"#3d5c3d"}}>{c.name}</div>
-                        <div style={{fontSize:12,color:"#7a6e6a",marginTop:2}}>⏱ {c.duration}</div>
-                      </div>
-                      <div style={{fontSize:15,fontWeight:700,color:"#c0756a"}}>{c.price}</div>
-                    </div>
-                  </div>
-                ))}
+              <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:17,fontWeight:600,color:"#3d5c3d",marginBottom:16}}>
+                予約詳細
               </div>
-
-              <div style={{marginBottom:16}}><label style={S.label}>お名前 *</label><input style={S.input} value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="例：田中 花子"/></div>
-              <div style={{marginBottom:16}}><label style={S.label}>電話番号 *</label><input style={S.input} value={form.phone} onChange={e=>setForm(f=>({...f,phone:e.target.value}))} placeholder="例：090-1234-5678"/></div>
-              <div style={{marginBottom:16}}><label style={S.label}>お悩み・メモ（任意）</label><textarea style={{...S.input,height:72,resize:"none"}} value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))} placeholder="気になる箇所など"/></div>
-              <button style={{...S.primaryBtn,opacity:(!form.name||!form.phone||!form.courseId)?0.5:1}} onClick={handleBook} disabled={!form.name||!form.phone||!form.courseId}>予約を確定する</button>
-              <button style={S.ghostBtn} onClick={()=>setModal(null)}>もどる</button>
+              <div style={{background:"#f0f7f0",borderRadius:14,padding:"16px",marginBottom:16}}>
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+                  {[
+                    ["日時",    `${formatDate(modal.date)} ${modal.time}`],
+                    ["コース",  `${getCourse(modal.courseId)?.name}・${getCourse(modal.courseId)?.price}`],
+                    ["お名前",  modal.clientName],
+                    ["電話番号",modal.clientPhone],
+                    modal.clientNote?["備考",modal.clientNote]:null,
+                  ].filter(Boolean).map(([label,value])=>(
+                    <tr key={label}>
+                      <td style={{padding:"6px 8px",color:"#6a8a6a",whiteSpace:"nowrap",fontWeight:600,verticalAlign:"top"}}>{label}</td>
+                      <td style={{padding:"6px 8px",color:"#2a4a2a"}}>{value}</td>
+                    </tr>
+                  ))}
+                </table>
+              </div>
+              <a href={`tel:${modal.clientPhone}`}
+                style={{display:"block",width:"100%",padding:"12px",borderRadius:12,
+                  background:"linear-gradient(135deg,#7ab0d0,#5a90b0)",color:"#fff",fontSize:14,fontWeight:700,
+                  textAlign:"center",textDecoration:"none",marginBottom:10}}>
+                📞 電話をかける
+              </a>
+              <button onClick={handleCancel}
+                style={{width:"100%",padding:"12px",borderRadius:12,border:"none",
+                  background:"linear-gradient(135deg,#d09080,#b07060)",color:"#fff",fontSize:14,fontWeight:700,marginBottom:10}}>
+                予約をキャンセルする
+              </button>
+              <button onClick={()=>setModal(null)}
+                style={{width:"100%",padding:"11px",borderRadius:12,border:"1px solid #c0d0c0",
+                  background:"transparent",color:"#6a8a6a",fontSize:14}}>
+                閉じる
+              </button>
             </Modal>
           )}
 
-          {/* ── キャンセルモーダル ── */}
-          {modal?.type==="cancel" && (
-            <Modal onClose={()=>setModal(null)}>
-              <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:18,fontWeight:600,color:"#3d5c3d",marginBottom:6}}>⚠️ キャンセル確認</div>
-              <div style={{fontSize:13,color:"#7a6e6a",marginBottom:16}}>{formatDate(modal.date)}　{slots[modal.date]?.[modal.slotIdx]?.time}</div>
-              <p style={{color:"#6b5e58",fontSize:14,marginBottom:16,lineHeight:1.7}}>この予約をキャンセルしてよろしいですか？</p>
-              <button style={{...S.primaryBtn,background:"#c0756a"}} onClick={handleCancel}>キャンセルする</button>
-              <button style={S.ghostBtn} onClick={()=>setModal(null)}>もどる</button>
-            </Modal>
-          )}
-
-          {/* ── 詳細モーダル（施術者） ── */}
-          {modal?.type==="detail" && (()=>{
-            const s=slots[modal.date]?.[modal.slotIdx];
-            const course = getCourse(s?.courseId);
-            return (
-              <Modal onClose={()=>setModal(null)}>
-                <div style={{fontFamily:"'Noto Serif JP',serif",fontSize:18,fontWeight:600,color:"#3d5c3d",marginBottom:6}}>📋 予約詳細</div>
-                <div style={{fontSize:13,color:"#7a6e6a",marginBottom:16}}>{formatDate(modal.date)}　{s?.time}</div>
-                {[
-                  ["お名前", s?.clientName],
-                  ["電話番号", s?.clientPhone],
-                  course ? ["コース", `${course.name}　${course.duration}　${course.price}`] : null,
-                  s?.clientNote ? ["メモ", s.clientNote] : null
-                ].filter(Boolean).map(([k,v])=>(
-                  <div key={k} style={{display:"flex",gap:12,padding:"10px 0",borderBottom:"1px solid #ede8e0",fontSize:14}}>
-                    <span style={{color:"#7a6e6a",minWidth:70,fontWeight:600}}>{k}</span><span>{v}</span>
-                  </div>
-                ))}
-                <button style={{...S.primaryBtn,background:"#c0756a",marginTop:16}} onClick={()=>setModal({...modal,type:"cancel"})}>キャンセルする</button>
-                <button style={S.ghostBtn} onClick={()=>setModal(null)}>閉じる</button>
-              </Modal>
-            );
-          })()}
-
-          {toast && <div style={{position:"fixed",bottom:30,left:"50%",transform:"translateX(-50%)",background:"#3d5c3d",color:"#fff",borderRadius:20,padding:"11px 24px",fontSize:14,fontWeight:600,zIndex:200,boxShadow:"0 4px 16px rgba(0,0,0,0.2)",whiteSpace:"nowrap"}}>{toast}</div>}
+          <Toast msg={toast}/>
         </div>
       );
     }
 
-    ReactDOM.render(<App/>, document.getElementById("root"));
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
   </script>
 </body>
 </html>
